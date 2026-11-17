@@ -3,7 +3,7 @@
 import { FormEvent, useCallback, useEffect, useMemo, useState } from 'react'
 import { getSupabase } from '@/lib/supabase'
 import {
-  ArrowDownLeft, ArrowUpRight, Check, ChevronRight, CircleHelp, HandCoins,
+  ArrowDownLeft, ArrowUpRight, Check, ChevronRight, CircleHelp, Eye, EyeOff, HandCoins,
   LayoutDashboard, LogOut, Menu, Plus, Search, ShieldCheck, Users, Wallet, X,
 } from 'lucide-react'
 import type { User } from '@supabase/supabase-js'
@@ -28,6 +28,11 @@ export function UdharDashboard() {
   const [password, setPassword] = useState('')
   const [shopName, setShopName] = useState('')
   const [authBusy, setAuthBusy] = useState(false)
+  const [showPassword, setShowPassword] = useState(false)
+  const [showNewPassword, setShowNewPassword] = useState(false)
+  const [forgotMode, setForgotMode] = useState(false)
+  const [recoveryMode, setRecoveryMode] = useState(false)
+  const [newPassword, setNewPassword] = useState('')
   const [customers, setCustomers] = useState<Customer[]>([])
   const [entries, setEntries] = useState<Entry[]>([])
   const [loading, setLoading] = useState(false)
@@ -100,7 +105,10 @@ export function UdharDashboard() {
         setUser(data.session?.user ?? null)
         setAuthReady(true)
       }).catch((e: unknown) => { if (alive) { setError(e instanceof Error ? e.message : 'Session load nahi hua.'); setAuthReady(true) } })
-      const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => setUser(session?.user ?? null))
+      const { data: listener } = supabase.auth.onAuthStateChange((event, session) => {
+        setUser(session?.user ?? null)
+        if (event === 'PASSWORD_RECOVERY') setRecoveryMode(true)
+      })
       return () => { alive = false; listener.subscription.unsubscribe() }
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Supabase setup missing.')
@@ -117,10 +125,10 @@ export function UdharDashboard() {
       if (authMode === 'signup') {
         const { data, error: authError } = await supabase.auth.signUp({
           email: email.trim(), password,
-          options: { data: { shop_name: shopName.trim() } },
+          options: { data: { shop_name: shopName.trim() }, emailRedirectTo: window.location.origin },
         })
         if (authError) throw authError
-        if (!data.session) setNotice('Signup request bhej di gayi hai. Email inbox mein confirmation link check karein, phir login karein.')
+        if (!data.session) setNotice('Account request submit ho gayi. Email inbox aur Spam folder mein confirmation link check karein. Link kholne ke baad login karein.')
         else setNotice('Account ban gaya. Apna pehla customer khata banayein.')
       } else {
         const { error: authError } = await supabase.auth.signInWithPassword({ email: email.trim(), password })
@@ -129,6 +137,32 @@ export function UdharDashboard() {
       }
       setPassword('')
     } catch (e) { setError(e instanceof Error ? e.message : 'Login nahi ho saka.') }
+    finally { setAuthBusy(false) }
+  }
+
+  async function sendPasswordReset(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault(); setError(''); setNotice(''); setAuthBusy(true)
+    try {
+      const { error: resetError } = await getSupabase().auth.resetPasswordForEmail(email.trim(), {
+        redirectTo: window.location.origin,
+      })
+      if (resetError) throw resetError
+      setNotice('Password reset link aapke email par bhej diya gaya hai. Inbox aur Spam folder check karein.')
+    } catch (e) {
+      const message = e instanceof Error ? e.message : 'Reset email nahi bheja ja saka.'
+      setError(message.toLowerCase().includes('rate limit') ? 'Bahut requests ho gayi hain. Kuch der baad dobara try karein.' : message)
+    } finally { setAuthBusy(false) }
+  }
+
+  async function updateRecoveredPassword(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault(); setError(''); setNotice('')
+    if (newPassword.length < 6) { setError('Naya password kam se kam 6 characters ka hona chahiye.'); return }
+    setAuthBusy(true)
+    try {
+      const { error: updateError } = await getSupabase().auth.updateUser({ password: newPassword })
+      if (updateError) throw updateError
+      setRecoveryMode(false); setNewPassword(''); setNotice('Password successfully change ho gaya.')
+    } catch (e) { setError(e instanceof Error ? e.message : 'Password update nahi ho saka.') }
     finally { setAuthBusy(false) }
   }
 
@@ -184,21 +218,35 @@ export function UdharDashboard() {
   }
 
   if (!authReady) return <div className="auth-screen"><div className="auth-card"><HandCoins size={34} /><h1>ApnaKhata</h1><p>Secure khata load ho raha hai...</p></div></div>
+  if (recoveryMode && user) return (
+    <div className="auth-screen">
+      <form className="auth-card" onSubmit={updateRecoveredPassword}>
+        <div className="auth-brand"><span className="brand-mark"><HandCoins size={22} /></span><span>Apna<span className="brand-light">Khata</span></span></div>
+        <h1>Naya password set karein</h1>
+        <p className="auth-copy">Apne account ke liye ek naya secure password banayein.</p>
+        <label>Naya password<span className="password-field"><input required type={showNewPassword ? 'text' : 'password'} minLength={6} autoComplete="new-password" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} placeholder="Kam se kam 6 characters" /><button type="button" className="password-toggle" aria-label={showNewPassword ? 'Password chhupayein' : 'Password dekhein'} onClick={() => setShowNewPassword((value) => !value)}>{showNewPassword ? <EyeOff size={18} /> : <Eye size={18} />}</button></span></label>
+        {error && <p className="form-error" role="alert">{error}</p>}
+        {notice && <p className="form-success">{notice}</p>}
+        <button className="primary-button auth-submit" disabled={authBusy}>{authBusy ? 'Please wait...' : 'Password update karein'}</button>
+      </form>
+    </div>
+  )
   if (!user) return (
     <div className="auth-screen">
-      <form className="auth-card" onSubmit={submitAuth}>
+      <form className="auth-card" onSubmit={forgotMode ? sendPasswordReset : submitAuth}>
         <div className="auth-brand"><span className="brand-mark"><HandCoins size={22} /></span><span>Apna<span className="brand-light">Khata</span></span></div>
         <p className="auth-kicker">DUKAAN KA DIGITAL BAHI-KHATA</p>
-        <h1>{authMode === 'login' ? 'Apni dukaan mein login karein' : 'Apni dukaan ka account banayein'}</h1>
-        <p className="auth-copy">Aapke customers aur unka hisaab private aur secure rahega.</p>
-        {authMode === 'signup' && <label>Dukaan ka naam<input required value={shopName} onChange={(e) => setShopName(e.target.value)} placeholder="Jaise: Gupta General Store" /></label>}
+        <h1>{forgotMode ? 'Password reset karein' : authMode === 'login' ? 'Apni dukaan mein login karein' : 'Apni dukaan ka account banayein'}</h1>
+        <p className="auth-copy">{forgotMode ? 'Apna registered email dalein. Hum reset link bhej denge.' : 'Aapke customers aur unka hisaab private aur secure rahega.'}</p>
+        {!forgotMode && authMode === 'signup' && <label>Dukaan ka naam<input required value={shopName} onChange={(e) => setShopName(e.target.value)} placeholder="Jaise: Gupta General Store" /></label>}
         <label>Email address<input required type="email" autoComplete="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@example.com" /></label>
-        <label>Password<input required type="password" minLength={6} autoComplete={authMode === 'login' ? 'current-password' : 'new-password'} value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Kam se kam 6 characters" /></label>
+        {!forgotMode && <label>Password<span className="password-field"><input required type={showPassword ? 'text' : 'password'} minLength={6} autoComplete={authMode === 'login' ? 'current-password' : 'new-password'} value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Kam se kam 6 characters" /><button type="button" className="password-toggle" aria-label={showPassword ? 'Password chhupayein' : 'Password dekhein'} onClick={() => setShowPassword((value) => !value)}>{showPassword ? <EyeOff size={18} /> : <Eye size={18} />}</button></span></label>}
         {error && <p className="form-error" role="alert">{error}</p>}
-        <button className="primary-button auth-submit" disabled={authBusy}>{authBusy ? 'Please wait...' : authMode === 'login' ? 'Login karein' : 'Account banayein'}</button>
-        <p className="auth-switch">{authMode === 'login' ? 'Naye dukandar hain?' : 'Pehle se account hai?'} <button type="button" onClick={() => { setAuthMode(authMode === 'login' ? 'signup' : 'login'); setError('') }}>{authMode === 'login' ? 'Sign up' : 'Login'}</button></p>
-        <p className="auth-secure"><ShieldCheck size={14} /> Har dukaan ka data alag aur protected hai.</p>
         {notice && <p className="form-success">{notice}</p>}
+        <button className="primary-button auth-submit" disabled={authBusy}>{authBusy ? 'Please wait...' : forgotMode ? 'Reset link bhejein' : authMode === 'login' ? 'Login karein' : 'Account banayein'}</button>
+        {authMode === 'login' && !forgotMode && <p className="auth-switch"><button type="button" onClick={() => { setForgotMode(true); setError(''); setNotice('') }}>Password bhool gaye?</button></p>}
+        <p className="auth-switch">{forgotMode ? 'Login par wapas jaayein?' : authMode === 'login' ? 'Naye dukandar hain?' : 'Pehle se account hai?'} <button type="button" onClick={() => { setForgotMode(false); setAuthMode(authMode === 'login' ? 'signup' : 'login'); setError(''); setNotice('') }}>{forgotMode ? 'Login' : authMode === 'login' ? 'Sign up' : 'Login'}</button></p>
+        <p className="auth-secure"><ShieldCheck size={14} /> Har dukaan ka data alag aur protected hai.</p>
       </form>
     </div>
   )

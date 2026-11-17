@@ -255,3 +255,10 @@ h1 span { font-weight: 400; color: #799083; }
 .payment-hint{font-size:12px;color:#64756a;background:#f1f6f2;padding:10px;border-radius:8px}
 .modal-form .form-error{margin:0}
 @media(max-width:640px){.auth-card{padding:26px 20px}.auth-card h1{font-size:23px}.demo-notice{align-items:flex-start;gap:8px}.demo-notice button{white-space:nowrap}}
+
+/* Authentication improvements: password visibility and recovery forms */
+.password-field{position:relative;display:flex;align-items:center}
+.auth-card .password-field input{width:100%;padding-right:48px}
+.password-toggle{position:absolute;right:7px;top:50%;transform:translateY(-50%);width:34px;height:34px;display:grid;place-items:center;border:0;border-radius:7px;background:transparent;color:#607568;cursor:pointer}
+.password-toggle:hover{background:#edf4ef;color:#206b50}
+.password-toggle:focus-visible{outline:2px solid #43866a;outline-offset:2px}
